@@ -1,0 +1,457 @@
+﻿[SPADE] Beemo Feed Lag Solution 
+
+
+Authors – Divya ChandranJoshua Wilson
+Status – Review
+Related – Extract Orders Feed Processing from PrismoPrismo Consumption Lag Analysis[SPADE] Removing fees line item from Shift and Close of Day reportsDashboard 
+Slack - 
+—--------
+Setting
+Prismo is on the ingestion side of beemo, it consumes data from several feeds including
+Bills, Ledger Entry, Settled Ledger Entry, COGS, Gift Cards, Order 
+When a large volume of data is sent to Prismo for processing, we notice that the entry feed encounters noticeable delays in consumption. This delay then affects the freshness of the data in the Reports[a][b][c], leading to a frustrating experience for sellers and generating customer service requests to rectify incomplete or erroneous information.
+
+
+Prismo consumes the bills feed and augments  the data with data consumed from the LE and SLE feed.[d][e][f][g]  This data is then served via beemoreporter to merchants as analytics reports. Few scenarios with impact of delayed ledger feed listed below:
+1. Delayed Fee reporting: With large spikes to SLE feed observed on Saturdays[h][i][j][k][l][m][n][o][p][q][r], the feed experiences significant lag sometimes up to 4 hours causing fees to be reported inaccurately. RST team is solving this problem by removing fees completely from Shift & COD reports. PDA is planning to introduce the freshness messaging in the Dashboard Sales Summary in Q3 as part of Fee Enhancement work[SPADE] Removing fees line item from Shift and Close of Day reports
+2. Incorrect Accounting: If a ticket is closed right before running the Shift report[s][t][u][v][w][x] (Report tells the Seller how much cash is owed to restaurant/cash owed to employees) and the payment info is delayed to beemoreporter then this calculation will be reported inaccurately. Sellers use this data for accounting and settling payments end of day even though the report may be missing unsettled bills that are not updated due to Primso being overloaded from SLE events
+3. After discussions with Tamreen Khan this issue appears to be primarily do to delays in data getting to the beemo feed. We believe it’s unrelated to Prismo Lag. Leaving here in case anything changes: Missing order in KDS[y][z]: This impact needs some more research to better understand if/how it’s related. Delays in the Beemo feed also impact the KDS (Kitchen Display System) service because it relies on beemoreporter to fetch Bills. One of the KDS's jobs is to take incoming Bills and turn them into tickets that we display in the kitchen so workers know what they need to make. Delays in the beemo feed can lead to delays in these tickets showing up in the kitchen, causing late or missed orders.
+When a quicksale is created at a KDS-using seller, the SPOS/RST POS notifies the KDS service and provides the Bill ID. The KDS service then uses this id to fetch the bill from beemoreporter. Any delays in bills getting to beemoreporter means delays in showing a ticket for this bill to the kitchen. If the bill still doesn't exist after a certain number of retries, then it never gets to the kitchen at all. This can lead to customers getting their order too late or never at all. We have mostly seen this issue during major beemo sevs, when bills are often delayed to the point that they never show up. 
+
+
+
+There is a possibility of similar situations or consequences occurring for other feeds that experience degraded performance.This document covers all feeds and the current lag in performance. We might not be aware of the impact until a vertical team or seller brings up the issue or escalates it. It is crucial for us to enhance the platform's performance and scalability for handling large volume requests for all feeds that are currently processed by Prismo and establish SLAs for data availability. We are exploring detailed analysis and debugging here.
+
+
+
+Below table with lag data from  Extract Orders Feed Processing from Prismo
+Feed
+	Items Produced
+(low-high,max)
+source
+	Consumer Shards Count
+source
+	Typical Lag
+source
+	3m Peak Lag
+
+
+	Impact
+	beemoBillEventsV2
+	34-281, 582
+	64
+	.4-1.2s, 2.4s
+	*
+
+
+	
+
+	orders
+	40-540, 800
+	64
+	~3h, 1d
+	1.16
+days
+	SO Order Source[aa] will be inaccurate until data lag is resolved
+	billSignatures
+	0.01-0.3, .7
+	
+
+	.06-2s, 10s
+	9.56m
+	
+
+	costOfGoods
+	1-27, 50
+	32
+	1-11s, 5min
+	42.08m
+	
+
+	giftcardEvents
+	.2-4, 7.5
+	4
+	.6-10s, 40s
+	21.24m
+	Activation of the GC, cant return the GC until the feed is consumed
+	prismoBillEventJobsResharded
+	240-1k, 2.5k
+	256
+	.6-16s, 3m
+	14.72m
+	
+
+	settledLedgerEntriesFeed
+	60-750, 10.2k
+	64
+	3s, 12h
+	14.25h
+	
+
+	ledgerEntriesFeed
+	80-300, 450
+	16
+	1s-7m, 1h
+	4.74h
+	
+
+	riskEvaluation
+	1.4-10, 11.7
+	1
+	.6s, 8m
+	19.72m
+	
+
+	rolodexPaymentContactLinkageFeed
+	34-300, 450
+	128
+	2-30s, 40m
+	3.71h
+	Which customer is attached to tender
+	teamMemberAttributionSharded
+	3-100, 130
+	8
+	
+
+	3.06h
+	Tip money and which team member is attached to. (Team sales, Payroll)
+[ab][ac]	
+
+
+
+
+*up to 5 minutes in addition to the lag reported above because of the second prismo job that processes the feed
+People
+From Orders Leads: Requesting approval on the decided option and to scope in the work to add the timestamp info into custom Report API and long term lag solution tickets in the upcoming sprint since work was not scoped in as part of Q3 planned work.
+From RST: If short term timestamp fix along with long term lag fix documented here would improve confidence in data freshness
+Reviewer
+	Recommended decision approved?
+	Comments
+	Steve Chen
+	
+
+	
+
+	Oseyi Ikuenobe
+	
+
+	
+
+	Logan Johnson
+	
+
+	
+
+	Lucas Isaza
+	
+
+	
+
+	Nichada Saetie
+	
+
+	
+
+	Anusha Sethuraman
+	
+
+	
+
+	
+
+Alternatives
+Option 1: (Short Term) Static Message
+ Add messaging on the reports to show delay in data so that Sellers/Employees know to run the report at a later time for accurate data
+:For the Ledger feed specifically, it has been observed that the delay tends to increase over the weekend, which could potentially be attributed to higher business volumes during that time(This hypothesis needs to be validated). Sellers can be informed through a static message to anticipate data delays of up to X hours for the COD/Shift Report. We need to identify and communicate any similar patterns for all other feeds and associated Reports.
+Pros
+*  This approach will help manage seller’s expectations by advising them to review the data prior to the anticipated lag period. This would resolve the pain point for RST.
+
+
+
+
+Cons
+* We may be underreporting or over reporting delays causing more inaccuracies
+* In the case of feeds like orders, where the sales data is up to date but the hydration process experiences delays, displaying the message mentioned earlier could potentially lead to more confusion. We need to carefully evaluate specific scenarios and user experiences, and identify the appropriate locations to surface this messaging, ensuring that it effectively communicates the data delay without causing unnecessary confusion.
+
+Option 2: (Short Term) Timestamp Display 
+We can pass the latest timestamp to CustomReport API from the input data and show sellers a message such as, "This report is accurate[ad] up to x minutes ago (e.g., 3:10PM EDT, April 24, 2023)." This way, when an employee sees the timestamp, they can understand that they closed a ticket recently, for example, 2 minutes ago at 3:15, and the reporting system is still in the process of catching up with the latest data. 
+For each feed, grab the timestamp of the most recent data in the feed and then take the minimum across all feeds.[ae][af][ag] We will pass the timestamp for the  most delayed feed or based on the report you are looking for we can assess the delay for the specific feed.[ah][ai][aj][ak] For the RST use case we will look at the ledger entry feed and return the timestamp for delay for this feed.
+Pros
+   *  This approach will help manage sellers' expectations by advising them to hold off on running certain reports until data is fresh for the desired time period. This would resolve the pain point for RST where the COD/Shift report is run EOD prior to bills being settled causing inaccurate accounting.
+   * Can be possibly  done within a 2 Sprints
+
+Note
+      * We need to carefully evaluate specific scenarios and user experiences, and identify the appropriate locations to surface this messaging, ensuring that it effectively communicates the data delay without causing unnecessary confusion. 
+      * For scope outside of RST we need to reach out to corresponding teams to communicate availability of the new timestamp
+      * This solution requires a deep understanding of the feeds needed from different frontend teams as well as some work to surface the correct number on each report. 
+      * In the regular case where our feeds are all < 5 seconds behind this information isn’t useful. 
+      * Assuming one shard is behind the timestamp for a merchant is actually behind the accurate time. Example: 1 shard is an hour behind we’ll say this report is up to date as of an hour ago but for most merchant the report is actually fully up to date.
+      * This information captures feed lag from the service that feeds into reporting and not lag across the system. For example this won’t capture lag from omnibus -> beemo which may also contribute to the lag for reporting.
+Option 3: Fixing the lag[al][am][an]  
+We need more time to work on a long term solution. We need to investigate if we can improve consumption to do a better  job of reducing the spike on feeds like SLE. We need to also investigate if any of the other consumers handles this spike gracefully without the Spike. 
+
+
+Todo: (
+      * Impact analysis and downstream effects of delayed feed Not Started
+      * Add logs for Prismo bill events job lag Not StartedOAGGR-1350  (1 day)
+
+
+      * Better diagnose where the root cause of performance degradation is occurring.
+      * Add Crismo nodes Completed OAGGR-1346 
+      * What did this fix?
+      * Reduce Ingestion Speed of SLE feed and monitor performance and lag improvement In Progress OAGGR-1347  (2 days) 
+      * What does this fix? Although the large spikes are observed on weekends[ao] and adding additional nodes for spikes on weekends reduces the lag, we still observe 40m spikes through the week which we believe can be reduced by rate limiting the SLE feed which currently throttles the prismo jobs and causes overall lag.
+      * Parallel process saveBewfo Not StartedOAGGR-1351 (3 days)
+      * What does this fix? - Speeds up ingestion across the board for all events, improving general service performance.
+      * Explore execution plan for  Extract Orders Feed Processing from PrismoNot Started (Not currently scoped)
+      * Rethink of data ingestion to reduce cross feed impact.
+      * Add more Alerts and define SLAs OAGGR-1353  (5 days + any input)
+      * What does this fix: Clearly defined criteria for a sev in reporting to ensure we don’t get back into this state.
+      * Work with RST to define initial SLOs and criteria for SEV and repeat with other consumers to ensure alignment.
+      * Bug Fix: update spanner exception causing entire batch to fail OAGGR-1352 (3 days)
+      * Currently we fail jobs more often than we need to. A failed job fails the full batch causing delays, and increased load by retrying everything. 
+
+
+      * The tickets above should improve ingestion for all feeds other than orders and Settled-ledger. Orders feed improvements will require their own workstream but impact is just for customers that filter by order source.
+      * To fix the orders feed lag we are attempting some changes to improve throughput: OAGGR-1354: Increase Prismo Orders feed throughput 
+
+
+Progress from adding additional nodes:
+  
+
+Improvement % this weekend from adding additional nodes
+This Week: Shard 5 -> 34m 55sec behind @ peak, every other shard was less than 5 sec behind
+Prior Week: Shard 5 -> 4h 13 mins lag and every other shard was 3h15 min behind peak
+See Trend here: Datadog dashboard 
+
+
+Option 4
+For reports like close of day, the issue is the merchant may be finalizing a number of details and then quickly move on to create the close of day report. If we track the order/bill ID of the last item changed, we can wait to return the report until the updates to that bill have reached the reporting system. If we’re confident in the regular case all the data needed will be available in a reasonable timeframe (1 min, 5 min?) this option allows for the report to complete correctly for a merchant after some delay.
+
+
+Pros:
+      * This option is tied to a merchant and actually verifies the data the merchant wants is available in their report
+      * It’s a low LOE to implement
+Cons
+      * There isn’t a sure fire way to know how long it’ll take for the data to appear. What do we do if it doesn’t appear after some timeout?
+      * This requires the client to keep track of the last event and depending on how it’s implemented may not work across devices. [ap][aq]
+      * This method assumes most of the time reports will be delayed less than some acceptable amount of time where a merchant is able to wait for the results synchronously. [ar][as][at]
+
+
+
+
+Decision[au][av]
+We decided to move forward with Option 2, passing the timestamp via customReport endpoint so that we can message the FE appropriately. With Better context setting we believe we can avoid confusion and miscalculations from unsettled data. This solution will resolve the RST use case for COD/Shift report inaccuracies[aw] by surfacing the delay to the Seller.
+
+
+We are still investigating the long term solution and experimenting with different approaches for improving platform performance and hope to resolve downstream impact in the future. 
+
+
+In parallel we are also exploring tickets to mitigate the lag in the short term. These tickets may fix the spikes of lag we are seeing. 
+
+
+OPEN QUESTIONS TO RST ON LAG FIX[ax]
+      1. What is the monitor period that the RST team is comfortable with to establish confidence in data freshness?[ay]
+      2. SLOs for lag and establish SEVs with RST for when we(Orders Reporting) don't meet them[az]
+Explain[ba]
+
+
+We believe it will be fairly straightforward to monitor timestamps of events in each feed shard. We can use these timestamps to give a rough last updated time for each feed. The simplest method can take this full list of timestamps and take the one furthest back in time[bb] to get an accurate idea of what time reporting has reached. This solution should give an accurate picture to merchants without too much effort on our end. With some additional effort we may be able to filter the correct feeds based on the request to determine a more accurate picture of the delay. While this is more effort than a stack message we believe it’s a significantly better merchant experience. When compared to a long term solution we believe this will give us the best results for the least amount of risk given we don’t have certainty on the level of effort to resolve the long term solution.
+
+
+
+
+Open Questions
+
+
+Item
+	Resolution
+	DRI
+	Root cause for weekend spikes
+
+Current resolution is adding additional nodes for weekend spike and rate limiting requests from SLE. 
+
+	
+
+
+	
+
+	Missing order is KDS is unrelated to prismo lag. Any AI here?
+	
+
+	
+
+	Full scope of reporting impact for delays in fee data
+	
+
+	
+
+	Timestamp info in Custom Report endpoint for transparency to seller
+-downside reported lag may be off depending on which shard the merchant is on
+	
+
+	
+
+	As we are exploring long term solution for improving lag, what is an acceptable monitor period to build confidence in the solution
+	
+
+	
+
+	Agree on SLAs for feed lag and establish SEV
+	
+
+	
+
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+. 
+
+
+
+
+
+
+[a]Is it just reports ? What happens to the BillEvent Feed consumers ? They'll get inaccurate data too ? or is that not the case ?
+[b]Prismo consumes bill events feed, this all happens downstream of that feed. No lag for consumers of the bill events feed.
+[c]Ah so people consuming BillEvents only get Bill and not the hydrated object?
+
+
+Thanks for the clarification. I was under the impression that it was Befwo.
+[d]So when a ticket is open (meaning unsettled), Ledger entry event is not created for it is it ? So the first time we ever see this is when SLE event is triggered ? 
+
+
+Or 
+
+
+LE is created, but the data is not used since it is not "settled" yet? 
+
+
+What I am trying to understand is --> why are we are not able to say how much outstanding "unsettled" amount exists . This may change but atleast should be able to give a ball park in reports  with *asterisk
+[e]We have all the fee data we need from the Ledger entry feed. We don't need settledLedgerEntry. The proposed solution is to let settledLedgerLag even more to ensure we don't let it cause issues with the data we need
+[f]Why consume SLE at all then?
+[g]It adds a few fields to the bill event with fanout not used for reporting as far as I know but probably should spend time digging into who uses them. Namely:  sets a settlement payment token
+settlementDate and externalBankSettlementEntryToken
+[h]why is this happening?
+[i]@joshuaw@squareup.com @sfarhad@squareup.com @asethuraman@squareup.com
+[j]Why are their large spikes? My understanding of settlements is they are all batched at the end of the day and occur at the same time so this is actually the time settlement is happening for all transactions.
+[k]They could batch the feed publishing rather than overwhelm the downstream systems
+[l]I definitely think we can do better here with how it's published and how we consume. Since I've found that we use very little info from this feed my assumption has been this is the best feed to let lag if we can resolve the other issues rapidly, but we probably need to better understand the downsides when it does lag as well as how well we can prevent the lag all together in a new system.
+[m]I was also curious how this impacted the new fee report PDA team is building. Looks like EG (SQS) is handling it gracefully. Need to understand it a bit more there.
+[n]I don't believe they are consuming the settledLegerFeed and this particular issue isn't really related to elasticgraph or the SQS component. A better comparison would be ingestion into spot which I believe is currently also just using square feeds.
+[o]1 total reaction
+Oseyi Ikuenobe reacted with ➕ at 2023-07-12 08:36 AM
+[p]Popping up a level, what I am seeing is that:
+
+
+1/ We have an integration between two systems: Ledger and Beemo.
+
+
+2/ The integration has noticeable downsides, including adverse effects on sellers
+
+
+3/ We do not understand why the integration is done in the way it is (lost tribal knowledge)
+
+
+Therefore, beyond mitigating the seller effect, fundamentally, we must re-examine the design and re-establish clear contracts between systems.
+
+
+I also see some of the above to be true between Beemo and RST reports.
+
+
+Therefore, I expect at least the three teams to come to the table to re-evaluate the design of the system end-to-end.
+
+
+@asethuraman@squareup.com who should conduct this?
+[q]Steve, I agree. We have already setup time to get that conversation going. Shaz will conduct that. Cc @sfarhad@squareup.com
+[r]Ack, yes I will be the conductor.
+[s]Doesn't seem like there is a way to prevent this altogether, right?
+[t]@joshuaw@squareup.com
+[u]There are not a lot of good / straightforward ways. If we new the final bill event update for the day from a location we could ensure that's been processed before running the report. It's definitely not a trivial problem to solve.
+[v]One thing we've thought about from the RST side is if we could surface the delay in some way, then an employee could understand whether they're impacted or not. e.g., I'm a server who knows I just closed out a ticket and added the tip from the paper receipt at 8:29PM for the end of my shift at 8:30. I run the report and it has a line that says "This report is accurate up to 8:27PM" because that's the last bill event that was used to calculate the report data. I personally know I just closed out a ticket later than that, so I at least know to wait and re-run the report, even if that's not detectable by our code.
+
+
+I guess the TL;DR there is even if we can't guarantee perfect accuracy/current, we can at least be transparent about how accurate/current a report is.
+[w]cc: @lisaza@squareup.com
+[x]I believe option 2 describes this let me know if theres anything missing / wrong about that. Would also love your thoughts on option 4 as another approach.
+[y]we are saying this is not part of the same issue, right?
+
+
+@joshuaw@squareup.com
+_Assigned to Joshua Wilson_
+[z]The first description seems unrelated to me but definitely want to understand the flow. Beemo feed lag should be unrelated to this issue unless there's some secondary call. If this is happening regularly I definitely want to understand it better. However the second quicksale case may be related, but don't have enough info to understand. I'll reach out for more to understand what endpoint they're calling and if they are seeing issues. There are a number of different beemoreporter endpoints and should be options for this realtime use case.
+[aa]Why this attribute in particular?
+[ab]Is this for all tip money (like, if I add a paper tip to a transaction), or just for the tip information when using the ATTRIBUTED_EMPLOYEE GroupByType? We are using both the tip money on an ungrouped report, and also the surcharge info on the ATTRIBUTED_EMPLOYEE grouped report to get auto-gratuity info, but if this can be this delayed, maybe it'd be better for us to get a SURCHARGE grouped report and then look for auto-gratuity surcharges there (if possible) if that's less delayed than the ATTRIBUTED_EMPLOYEE report.
+[ac]So ATTRIBUTED_EMPLOYEE will actually work even without this feed it just won't have the correct split for bills that were split between employees. I'm fairly convinced we can reduce this lag number instead of making reporting changes.
+[ad]Can we determine accuracy? Because if the sale/bill is constantly being updated
+- do we know when its finalized and settled to be able to determine accuracy?
+[ae]How scalable is this? Also, does the "feed timestamp" from all feeds accurately reflect the freshness of the underlying data?
+
+
+@joshuaw@squareup.com @sfarhad@squareup.com @asethuraman@squareup.com
+[af]I believe the feed timestamps are accurate for when the event was written in the publishing service. They are built into the feed framework on each request the publishing service tells how many seconds we're behind.
+[ag]Yes, but when something is written in the publishing service is not the same thing as the time from the seller's perspective, right? And the latter is what you are conveying in the UI?
+[ah]so this is custom built for every report (and variations of every report)?
+
+
+@joshuaw@squareup.com
+[ai]Building this would require the frontend teams to have a deep understanding of which number they want to use (which feeds they consume to get their data)
+[aj]This feels like it needs more thoughts
+
+
+@asethuraman@squareup.com @sfarhad@squareup.com
+[ak]Ack. We discussed this earlier today in our 1:1 while having visibility for each of the feeds and its delay is useful for us, surfacing to sellers will need more thinking.
+[al]I don't see this as mutually exclusive from option 2.
+
+
+We should have SLAs and ensure we meet them. Even with SLAs (e.g. at 95 percentile), you have the 5% of times when you exceed the threshold, and being able to inform sellers of that could be valuable
+
+
+@joshuaw@squareup.com @sfarhad@squareup.com @asethuraman@squareup.com
+[am]Agree. I think we have some short term solutions to fix the lag that we're already working on. A critical part is probably to decide what SLA we can meet and commit to staying under.  
+
+
+This doesn't need to be an either or with option 2. It just depends on where we want to put our effort and when.
+[an]+1 I think it's okay for the decision to be Option 2 & 3. I think the original goal was to determine which to do first but thanks you Josh, we can do both!
+
+
+I also like the enhancement of having SLAs and only showing the timestamp when we've missed the SLA.
+[ao]also why are we doing the heaving processing on Saturday night: one of the busiest times for businesses?
+[ap]We did look into an idea like this: https://docs.google.com/document/d/1rw19qOlnA6_wWlWDjpTaRvXMbCLcUuxeiPf8dR-Av80/edit#heading=h.5v0zmskji707. I think because it's asynchronous we'd probably have to store all the bill IDs we just captured, but we could do that. Our major concern was the length of time, and it seems like even that original design doesn't fully account for that (it seems like the Bill we get back from the list being COMPLETED doesn't necessarily map to the ledger entry feed being consumed?), but if there was some support from beemoreporter (e.g., passing in the bill IDs and beemoreporter knows if it's seen their ledger entries), we could revisit.
+[aq]1 total reaction
+Stefan Rajkovic reacted with 👍 at 2023-07-11 08:50 AM
+[ar]Even 5 minutes probably feels like a long time when your the manager of a bar at 2AM and just want to get home, but maybe @lisaza@squareup.com can chime in on what's a feasible timeline, and what we could do if it does time out?
+
+
+One thing to maybe be cognizant of here is we usually talk about the maximum latency for any one shard, but depending on the sharding key, that might not be the most relevant? e.g., if 63/64 shards have max latencies of say 10s, and sharding is by merchant, then 63/64 merchants running the report will have a max latency of 10s.
+[as]Added as a downside to option 2. Definitely a good point. That updated timestamp may show a time an hour ago when the merchants data is actually up to date depending on which shard lags and which shard the merchant is on.
+[at]Ahhh hmm, yeah, I hadn't even thought of that since I was thinking that field in option 2 would be calculated from the bewfo objects themselves. Maybe this would be overly complicated, but maybe those timestamps could be added to the bewfo, like each object has a set of timestamps for each feed listener (or it could be only the ones that are potentially problematic to start) and whenever the feed processor updates it, it also sets that timestamp? I'm just throwing out ideas without actually knowing all of the underlying objects/architecture in the hope they're useful, so sorry if that's totally off-base!
+[au]Thank you for considering all options. 
+
+
+I think I understand the trade offs here. I am good with the proposed approach. (Short term first -> Followed by Long term). 
+
+
+In general having a "data refreshed until timestamp" in the API is good to have. Lets make sure we add it in a way that we wont lose it when we build new platform .
+[av]It was mentioned above but sounds like it's actually Option 2 & Option 3? I know this SPADE was originally written to decide what to do right away, but I feel like with Josh's work we are in a position to do both things, so the recommendation should reflect that?
+[aw]since this affects other reports, we might want to look into adding it to existing reports. Does this effect PDA's Payment Method report?
+[ax]@loganj@squareup.com
+_Assigned to Logan Johnson_
+[ay]Maybe I'm not entirely understanding the question, but I think we'd want to see what the peak delays are on Friday and Saturday, since those are our busiest days. Maybe over a few weeks, since there could some week-to-week variability (maybe our DS team could give us a good idea of trends).
+[az]Maybe @lisaza@squareup.com has an opinion on this?
+[ba]@divyac@squareup.com 
+Thanks for driving this forward!  Let's schedule a live meeting so we can talk through the comments and  close out on a path forward for the team by next week.
+[bb]Hmm, if the report could include each feed broken down on the response, that might be useful too. I'm thinking about say shift reports, where we only care about the Bill itself and the tips/auto-grats, it might be bad to be overly cautious. E.g. if fees are delayed but we decide to not show those to regular employees anyway, we don't want to hold up an employee leaving their shift if it won't affect their report. On close of day for managers we would care about fees being accurate. I know this may be more work on client teams (to understand what feeds are relevant to the info they care about), but it could be a much better client experience. The min of all of them could always be another field too for any clients that only care about that.
